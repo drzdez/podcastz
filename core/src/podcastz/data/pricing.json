@@ -1,0 +1,29 @@
+{
+  "as_of": "2026-09-28",
+  "note": "Verify before relying on it. Cost = usd_per_1k_chars x characters, or usd_per_audio_minute x estimated minutes (characters / language chars_per_hour).",
+  "default_model": "gpt-4o-mini-tts",
+  "providers": {
+    "openai": {
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "note": "gpt-4o-mini-tts is billed per token ($0.60/1M text in, $12/1M audio out); OpenAI estimates ~$0.015 per audio minute. tts-1 / tts-1-hd per character. Voices are language-independent.",
+      "api_key_env": "OPENAI_API_KEY",
+      "voices": ["alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse"],
+      "default_voices": ["marin", "cedar", "onyx", "ash"]
+    },
+    "elevenlabs": {
+      "source": "https://elevenlabs.io/pricing/api",
+      "note": "API list rate; plans include characters at the same effective rate. Library voices must be added to your account (My Voices) before use via API.",
+      "api_key_env": "ELEVENLABS_API_KEY",
+      "default_voices": []
+    }
+  },
+  "models": {
+    "gpt-4o-mini-tts": { "provider": "openai", "usd_per_audio_minute": 0.015, "supports_instructions": true, "note": "cheap, accepts style and pronunciation instructions" },
+    "tts-1": { "provider": "openai", "usd_per_1k_chars": 0.015, "supports_instructions": false },
+    "tts-1-hd": { "provider": "openai", "usd_per_1k_chars": 0.030, "supports_instructions": false },
+    "eleven_multilingual_v2": { "provider": "elevenlabs", "usd_per_1k_chars": 0.10, "supports_context": true, "supports_language_code": false, "note": "high quality, strong for Czech" },
+    "eleven_v3": { "provider": "elevenlabs", "usd_per_1k_chars": 0.10, "supports_context": false, "supports_language_code": true, "note": "most expressive; no previous/next text stitching" },
+    "eleven_flash_v2_5": { "provider": "elevenlabs", "usd_per_1k_chars": 0.05, "supports_context": true, "supports_language_code": true },
+    "eleven_turbo_v2_5": { "provider": "elevenlabs", "usd_per_1k_chars": 0.05, "supports_context": true, "supports_language_code": true }
+  }
+}

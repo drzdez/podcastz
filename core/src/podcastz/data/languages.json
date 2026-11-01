@@ -1,0 +1,13 @@
+{
+  "_comment": "chars_per_hour = characters of dialogue per hour of finished audio; drives duration and cost estimates. by_provider overrides it where a provider speaks noticeably faster or slower. 'measured' = from produced audio, 'estimated' = ~150 words/min. `podcastz sample` prints the measured rate; update this file with it.",
+  "cs": {
+    "name": "Czech / čeština",
+    "chars_per_hour": 46000,
+    "by_provider": { "openai": 41000 },
+    "basis": "measured: ~3.5 h of produced Czech dialogue (ElevenLabs eleven_multilingual_v2 46,000; OpenAI gpt-4o-mini-tts 40,900)"
+  },
+  "sk": { "name": "Slovak / slovenčina", "chars_per_hour": 46000, "basis": "estimated (as cs)" },
+  "en": { "name": "English", "chars_per_hour": 50000, "basis": "estimated" },
+  "de": { "name": "German / Deutsch", "chars_per_hour": 52000, "basis": "estimated" },
+  "pl": { "name": "Polish / polski", "chars_per_hour": 48000, "basis": "estimated" }
+}

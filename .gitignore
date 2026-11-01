@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# Node / Tauri
+node_modules/
+app/src-tauri/target/
+app/src-tauri/binaries/
+
+# Local data never belongs in the repo
+projects/
+*.mp3
+*.wav
+.env
+
+# Notes and the old tool from the former podcast session (private voice IDs, company product details)
+legacy/
+
+# Local Claude context (private, never commit)
+CLAUDE.local.md

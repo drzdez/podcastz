@@ -1,0 +1,12 @@
+{
+  "name": "podcastz",
+  "owner": { "name": "drzdez" },
+  "metadata": { "description": "Prepare two-voice learning podcasts with your own AI session and turn them into audio." },
+  "plugins": [
+    {
+      "name": "podcastz",
+      "source": "./plugin",
+      "description": "Skills to interview, research, write, review and voice a dialogue podcast in a podcastz project folder."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "podcastz",
+  "version": "0.1.0",
+  "description": "Prepare a two-voice learning podcast in a podcastz project: interview, research with sources, script, review against sources, then audio via the podcastz CLI.",
+  "author": { "name": "drzdez" },
+  "homepage": "https://github.com/drzdez/podcastz",
+  "license": "MIT",
+  "skills": ["./skills/prepare", "./skills/research", "./skills/script", "./skills/review", "./skills/audio"]
+}
