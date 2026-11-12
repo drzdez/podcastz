@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from . import PodcastzError
+from . import secrets_store
 from .pricing import PRICING, model_info, provider
 from .project import done
 
@@ -14,11 +15,7 @@ OPENAI_SPEECH = 'https://api.openai.com/v1/audio/speech'
 
 
 def api_key(prov):
-    env = PRICING['providers'][prov]['api_key_env']
-    key = os.environ.get(env)
-    if not key:
-        raise PodcastzError(f'{env} is not set')
-    return key
+    return secrets_store.get(prov)
 
 
 def http(url, data=None, headers=None, timeout=180, retries=3):
@@ -36,7 +33,10 @@ def http(url, data=None, headers=None, timeout=180, retries=3):
             if e.code in (429, 500, 502, 503) and a < retries - 1:
                 time.sleep(5 * (a + 1))
                 continue
-            raise PodcastzError(f'TTS API HTTP {e.code}: {body}') from None
+            hint = ''
+            if e.code == 401:
+                hint = ' (key rejected: check `podcastz key status`; a PODCASTZ_<PROVIDER>_API_KEY variable wins over the stored key)'
+            raise PodcastzError(f'TTS API HTTP {e.code}: {body}{hint}') from None
         except (urllib.error.URLError, TimeoutError) as e:
             if a < retries - 1:
                 time.sleep(5)

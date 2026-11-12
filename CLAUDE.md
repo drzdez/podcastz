@@ -7,7 +7,9 @@ If a `CLAUDE.local.md` exists next to this file, read it too: it holds the maint
 ## Layout
 
 - `core/` – Python package and CLI `podcastz` (stdlib only at runtime). Modules: `project.py` (project folder, state, segment plan, script parsing), `check.py` (validation gate), `pricing.py` (+ `data/languages.json`, `data/pricing.json`), `tts.py` (OpenAI, ElevenLabs), `audio.py` (ffmpeg normalisation, mixing, timing manifest), `cli.py`, project template in `templates/project/`.
-- `plugin/` – Claude Code plugin (skills `prepare`, `research`, `script`, `review`, `audio`); marketplace in `.claude-plugin/marketplace.json`.
+- `plugin/` – Claude Code plugin (skills `setup`, `prepare`, `research`, `script`, `review`, `audio`; hooks reporting the session to the app); marketplace in `.claude-plugin/marketplace.json`.
+- `app/` – desktop app, Tauri 2 (Rust) + Svelte 5; runs the CLI per task with `--json`. `cd app; npm run check`, `cd app/src-tauri; cargo clippy --all-targets -- -D warnings; cargo test`.
+- `CHANGELOG.md` – release notes, shown by the app and used as the GitHub Release body; every version needs an entry (a Rust test checks it, and that `tauri.conf.json`, `Cargo.toml` and `package.json` carry the same version).
 - `docs/design.md` – architecture, including the planned desktop app (Tauri 2 + Python sidecar) and packaging.
 
 ## Working on the code
@@ -22,7 +24,7 @@ If a `CLAUDE.local.md` exists next to this file, read it too: it holds the maint
 
 - The repository holds only the framework. No podcast data of any kind: no sources, scripts, audio, cache, voice IDs from a private account, API keys, or names of real podcast projects in code, tests or docs. Tests use synthetic fixtures.
 - Every podcast is one self-contained project folder outside this repository; the tool works on it by path and never copies its content elsewhere.
-- Keys only from environment variables (`OPENAI_API_KEY`, `ELEVENLABS_API_KEY`), never in files.
+- Keys only in the OS credential store or environment variables, never in files, logs, command lines or test output (tests use the in-memory fake vault from `core/tests/conftest.py`).
 
 ## Conventions
 

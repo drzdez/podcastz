@@ -17,6 +17,20 @@ Input: `BRIEF.md` (topic, goal, level, sources policy). Output: `sources/` and `
 - Write down conflicts between sources explicitly (`sources/conflicts.md`), with both claims and their origins. Don't silently pick one.
 - Material extracted from documents (for example .docx or PDF converted to text) goes into `sources/` as text, with the original file named as the origin.
 
+## The source list (`sources/index.json`)
+
+Register every source so the user can curate it (in the app or by telling you):
+
+```
+podcastz source add <project> --title "RFC 1034 – Domain names" --origin https://www.rfc-editor.org/rfc/rfc1034 --file rfc1034.md --kind standard --note "primary definition of resolvers"
+podcastz source list <project> [--status approved]
+podcastz source set <project> s003 --status approved|rejected [--note "..."]
+```
+
+- New sources start as `proposed`. Sources the user provided can be added with `--status approved --by user`.
+- Ask the user to review proposals (or let them do it in the app) before writing scripts; say briefly why each source is worth using.
+- Later steps use **approved** sources only; never rely on `rejected` ones. If the user rejects a source a plan depends on, find a replacement or adjust the plan.
+
 ## Plan
 
 `work/plan.md`:

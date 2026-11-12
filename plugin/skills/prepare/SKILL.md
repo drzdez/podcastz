@@ -9,9 +9,10 @@ You guide the user from an idea to reviewed, TTS-ready scripts. The user wants t
 
 ## 0. Find or create the project
 
-- A project folder contains `podcast.json`. Look in the current directory first. If the user names another folder, work there by path.
-- No project yet: agree on a folder (lowercase kebab-case name) and run `podcastz new <folder>` (add `--language <code>` if already known). This creates `podcast.json`, `state.json`, `BRIEF.md`, `AGENTS.md` and the folders.
-- If `podcastz` is not on PATH, tell the user how to install it: `uv tool install --editable <path-to-podcastz>/core` (or `uv tool install podcastz` once published).
+- Usually you run in a **workspace** (a folder with `podcastz.workspace.json` holding many podcasts, one subfolder each). `podcastz workspace status` lists the projects, their stage and pending requests. A project folder contains `podcast.json`; if the user names another folder, work there by path.
+- No project yet: agree on a name (lowercase kebab-case) and run `podcastz new <slug>` inside the workspace (add `--language <code>` if already known). This creates `podcast.json`, `state.json`, `BRIEF.md`, `AGENTS.md` and the folders.
+- No workspace yet and the user wants the app to see their podcasts: `podcastz workspace init <dir>` (it also enables this plugin for sessions started there).
+- If `podcastz` is not on PATH, or there is no workspace yet, run the `setup` skill first.
 - Read `state.json` and continue from its stage instead of starting over. Read `AGENTS.md` if present; the project may add its own rules (for example HTML comments the project's own pipeline reads - leave them intact).
 
 Record progress at every stage change: `podcastz state . <stage> -m "<short message>"` (stages `interview`, `research`, `script`, `review`, `ready`).
@@ -35,6 +36,13 @@ Use the `review` skill with a separate reviewer agent that did not write the tex
 ## 5. Ready
 
 Run `podcastz check <project>` and fix all errors; fix warnings where reasonable. Make sure the writer is done editing before you declare the scripts final. Then `podcastz state . ready -m "<n> episodes, ~<minutes> min"` and tell the user the scripts are ready for audio (the `audio` skill, or the podcastz app).
+
+## Working with the podcastz app
+
+The app shows the workspace live (projects, stages, sources, scripts, the session state) and is where the user approves sources and pays for audio. It never talks to the model; you and the app share the files.
+- The plugin hooks report this session to the app and, at session start and with each user message, add **requests the user left in the app** to your context (for example "find a source on X for project Y"). Handle them like user requests, then run `podcastz request done <id> -m "<what you did>"`.
+- Tell the app about progress that is not a file change with `podcastz app notify "<message>" --project <slug>` (harmless when the app is closed).
+- Sources the user rejected in the app are not used; sources they added appear in `sources/index.json` with `added_by: user`.
 
 ## Rules
 

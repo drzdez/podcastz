@@ -12,6 +12,7 @@ Talk to the user in their language. Work only inside this folder.
 | `podcast.json` | the app creates it; you set `title`, `language`, `speakers` | settings; leave `tts`, `voices`, `audio` alone unless the user asks |
 | `state.json` | you, at every stage change | progress the app shows live |
 | `sources/` | you | research material, one Markdown file per source or topic, each with its origin (URL, file, book) |
+| `sources/index.json` | you and the user (in the app) | the source list: register each source with `podcastz source add`; the user approves or rejects; use approved sources only |
 | `work/` | you | plan, drafts, reviews, notes |
 | `text/NN-slug.md` | you | final scripts (format below) |
 | `audio/`, `cache/`, `.podcastz/` | the app | do not touch |

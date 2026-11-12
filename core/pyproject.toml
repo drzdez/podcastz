@@ -5,7 +5,7 @@ license = "MIT"
 description = "Turn two-voice dialogue scripts into podcast audio with TTS (OpenAI, ElevenLabs), with cost estimates and a content-hash cache."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["keyring>=25"]
 
 [project.scripts]
 podcastz = "podcastz.cli:main"

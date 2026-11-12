@@ -9,7 +9,7 @@ Run the review as a **separate agent** that did not write the text, when subagen
 
 ## What to check
 
-1. **Facts**: every factual claim against `sources/` (use `work/sources-map.md`, but verify yourself). Unsupported, distorted or over-generalised claims are findings, with the source and a corrected wording.
+1. **Facts**: every factual claim against the approved sources (`podcastz source list <project> --status approved`; use `work/sources-map.md`, but verify yourself). A claim resting on a proposed or rejected source is a finding. Unsupported, distorted or over-generalised claims are findings, with the source and a corrected wording.
 2. **Completeness**: does each episode deliver its goal from `work/plan.md` and the brief? Missing essentials get a short addition (no more than about 10 % length).
 3. **Clarity**: would a listener without prior knowledge follow it? Terms explained, examples concrete, no dense monologues, episodes connect.
 4. **Text-to-speech**: format (`podcastz check`), abbreviations expanded, numbers and codes written to be spoken, no symbols, speaker gender consistent.

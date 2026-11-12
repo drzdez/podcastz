@@ -1,10 +1,20 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "podcastz",
-  "version": "0.1.0",
-  "description": "Prepare a two-voice learning podcast in a podcastz project: interview, research with sources, script, review against sources, then audio via the podcastz CLI.",
-  "author": { "name": "drzdez" },
+  "version": "0.3.0",
+  "description": "Prepare a two-voice learning podcast in a podcastz workspace: interview, research with curated sources, script, review against sources, audio via the podcastz CLI; hooks report the session to the podcastz app and hand it requests from the app.",
+  "author": {
+    "name": "drzdez"
+  },
   "homepage": "https://github.com/drzdez/podcastz",
   "license": "MIT",
-  "skills": ["./skills/prepare", "./skills/research", "./skills/script", "./skills/review", "./skills/audio"]
+  "skills": [
+    "./skills/setup",
+    "./skills/prepare",
+    "./skills/research",
+    "./skills/script",
+    "./skills/review",
+    "./skills/audio"
+  ],
+  "hooks": "./hooks/hooks.json"
 }

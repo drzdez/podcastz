@@ -33,6 +33,6 @@ GUEST: Another replica.
 
 ## Facts
 
-Every factual claim comes from `sources/`. Keep a map `work/sources-map.md`: claim → source file and section. Hedge uncertain claims, drop unsupported ones, and list anything taken from outside the sources separately.
+Every factual claim comes from the **approved** sources (`podcastz source list <project> --status approved`). Keep a map `work/sources-map.md`: claim → source file and section. Hedge uncertain claims, drop unsupported ones, and list anything taken from outside the sources separately.
 
 Update the state: `podcastz state . script -m "drafts of <n> episodes"`.

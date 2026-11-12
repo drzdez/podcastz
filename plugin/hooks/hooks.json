@@ -1,0 +1,9 @@
+{
+  "description": "Report the AI session to the podcastz workspace (state for the app) and hand it requests left in the app.",
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "podcastz hook session-start", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "podcastz hook prompt", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "podcastz hook stop", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "podcastz hook session-end", "timeout": 10 }] }]
+  }
+}

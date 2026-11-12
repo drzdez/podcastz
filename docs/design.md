@@ -11,30 +11,52 @@ Status: draft, 2026-10-07.
 - **Audio is the app's job.** TTS costs money, so the app shows the price and asks before generating. Generation is deterministic, cached by content and repeatable.
 - **Generic and open.** No personal data, keys, voices from a private account or employer content in the repository. Podcast projects live outside the repo in a user-chosen data folder.
 
+## 1a. Workspace: what the app sees and where the skills live (2026-11-02)
+
+In practice one AI session works on many podcasts at once (a production repository with one folder per podcast). So the unit the app opens is a **workspace**, not a single project:
+
+```
+<workspace>/                       e.g. a private repository with your podcasts
+  podcastz.workspace.json          marker + settings (projects folder, defaults)
+  .claude/settings.json            enables the podcastz plugin for every session started here
+  .podcastz/                       runtime files, gitignored
+    session.json                   the AI session as reported by the plugin hooks
+    app.json                       the running app (local URL + token), written by the app
+    requests/<id>.json             requests from the app to the session
+  <slug>/                          one folder per podcast (podcast.json, sources/, text/, work/, audio/, cache/)
+```
+
+- `podcastz workspace init <dir>` creates the marker, `.podcastz/` with its `.gitignore`, and project-scoped plugin settings, so the skills are available to any session started in the workspace.
+- **The app knows the session**: plugin hooks (`SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`) call `podcastz hook …`, which writes `.podcastz/session.json` (session id, client, state `busy`/`idle`/`ended`, current project, time). The app shows it and offers *Open AI session* (focus or `claude --continue` in the workspace, §5).
+- **The session knows the app**: the app writes `.podcastz/app.json` while it runs. Skills call `podcastz app notify|show`, which reach the app if it runs and do nothing otherwise, so the console workflow keeps working without the app.
+- **The app asks the session**: buttons such as *Find more sources on…*, *Re-check this source*, *Shorten episode 2* write `.podcastz/requests/<id>.json`. The plugin's `SessionStart` and `UserPromptSubmit` hooks put pending requests into the session's context, and the app focuses the session window; the session handles them and marks them done with `podcastz request done <id>`. Nothing is typed into the terminal on the user's behalf.
+- **Sources are curated together**: `sources/index.json` in each project lists every source (title, origin, file, who added it, status `proposed` / `approved` / `rejected`, note). The `research` skill adds proposals with `podcastz source add`; the user approves, rejects or adds sources in the app (or tells the session); the `script` and `review` skills use approved sources only.
+
 ## 2. Components
 
 ```
 podcastz/                       (this repo, public)
   core/          Python package `podcastz` + CLI: project format and template (AGENTS.md, BRIEF.md),
-                 check, state, estimate/quote, TTS providers, cache, mix, publish
-  backend/       FastAPI sidecar over core (local HTTP + token, SSE for progress)
-  app/           Tauri 2 shell (Rust, thin) + web UI
-  plugin/        Claude Code plugin: skills (prepare, research, script, review), hooks (session lock)
+                 check, state, sources, workspace, keys, estimate/quote, TTS, cache, mix, publish;
+                 `--json` output (JSON lines for long tasks) is the app's protocol
+  app/           Tauri 2 (Rust, thin) + Svelte 5 / Vite / TypeScript UI
+  plugin/        Claude Code plugin: skills (prepare, research, script, review, audio), hooks (session state, requests)
   docs/
 ```
 
 ```
-┌─ Tauri app ─────────────────────────────────────────────┐
-│ Rust: window, starts/stops sidecar, launches AI session │
-│ UI: projects, new-podcast flow, editor, player, build   │
-└──────────────┬──────────────────────────────────────────┘
-               │ HTTP 127.0.0.1:<random port> + token, SSE
+┌─ Tauri app ──────────────────────────────────────────────┐
+│ Rust: runs the CLI per task, streams JSON lines as events,│
+│       cancels (kill), launches/focuses the AI session     │
+│ UI: workspace, project (sources, scripts, audio), settings│
+└──────────────┬───────────────────────────────────────────┘
+               │ spawn `podcastz --json …` (stdin for secrets)
 ┌──────────────▼──────────────┐      files       ┌──────────────────────────┐
-│ Python sidecar (FastAPI)    │◄────────────────►│ project folder           │
-│ core: check, estimate, TTS, │  watch + read    │ BRIEF, sources, text,    │
-│ cache, mix, publish         │                  │ state.json, audio        │
+│ podcastz CLI (sidecar)      │◄────────────────►│ workspace / project      │
+│ core: check, estimate, TTS, │                  │ BRIEF, sources/index,    │
+│ cache, mix, publish, keys   │                  │ text, state, .podcastz/  │
 └─────────────────────────────┘                  └────────────▲─────────────┘
-                                                              │ writes
+                                                              │ writes, hooks
                                               ┌───────────────┴──────────────┐
                                               │ user's AI session (terminal) │
                                               │ claude + podcastz plugin, or │
@@ -42,7 +64,10 @@ podcastz/                       (this repo, public)
                                               └──────────────────────────────┘
 ```
 
-Backend choice: **Python sidecar.** The working pipeline already exists in Python (TTS for ElevenLabs and OpenAI, content-hash cache, loudness normalization via ffmpeg, cost estimates). JVM or Rust would mean a port with no benefit for a single-user desktop tool. In development Tauri starts `uv run podcastz-backend`; for distribution the sidecar is frozen with PyInstaller and bundled as a Tauri external binary.
+Backend choice (2026-11-02, on the devstack's advice): **the sidecar is the CLI itself**, no server. The app spawns `podcastz --json …` per task; short commands return one JSON object, long ones (build, sample, publish) print JSON lines (`plan`, `progress`, `episode`, `error`, `done`) that Rust forwards to the UI as events; cancelling kills the process. One code path for console and app, no port, no token. In development the app uses `podcastz` from PATH (or `$PODCASTZ_CLI`); for distribution the CLI is frozen with PyInstaller as `podcastz-cli-<target-triple>` and bundled as a Tauri `externalBin`.
+
+**API keys** (same approach as other personal apps): the OS credential store through Python `keyring`, service `podcastz`, user name = provider (`openai`, `elevenlabs`). Lookup order (devstack secrets standard): `PODCASTZ_<PROVIDER>_API_KEY` as an explicit override, then the stored key, then the provider's generic variable (`OPENAI_API_KEY`, `ELEVENLABS_API_KEY`) last, so a stale generic variable never hides a key saved in Settings. Saving in the app verifies the key at once; the last result and its time are shown (stored in the app settings, never the key). The app reads and writes the same entry in Rust (devstack decision: app foundations in Rust): on Windows it calls Credential Manager directly with Python keyring's naming (TargetName `podcastz` for the first provider, `<provider>@podcastz` for others, UTF-16 blob), because the Rust `keyring` crate names Windows targets differently; on macOS and Linux it uses the `keyring` crate. Verified both ways (Rust writes, Python reads, and back). The Settings page only ever sees where a key comes from, never its value; `podcastz key test` checks a key against the provider's read-only models endpoint. Python tests use an in-memory fake vault; the Rust interop tests are `#[ignore]` and use a throwaway service name.
+
 
 ## 3. Project folder (the contract)
 
@@ -103,7 +128,7 @@ The user never has to signal the app; the app reacts to file changes.
 - **Project**: stage timeline from `state.json`; buttons *Open AI session* (focus or launch) and *Generate audio*; sources list; estimate.
 - **Editor**: per-episode script with line validation (`check`), lines changed since the last build highlighted with their cost to regenerate.
 - **Player**: episode audio with the script alongside; regenerate one line.
-- **Build**: progress over SSE (line X of Y, characters, cost so far), cancel; then *Publish* to `publish_dir`.
+- **Build**: progress from the CLI's JSON lines (line X of Y, characters, cost so far), cancel; then *Publish* to `publish_dir`.
 - **Settings**: data folder, AI client profiles, TTS keys (stored in the OS credential store, never in project files), default TTS model, voices.
 
 ## 7. Claude Code plugin (`plugin/`)
@@ -128,8 +153,10 @@ Providers and prices in `core` data files (dated; verify before relying on them)
   - Updater: `tauri-plugin-updater` + `tauri-plugin-process`; endpoint `https://github.com/drzdez/podcastz/releases/latest/download/latest.json`; `windows.installMode: "passive"`; minisign key from `npx tauri signer generate` (private key and password outside the repo, in GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, backed up; losing it means existing installs can't update). The UI checks at start at most once a day (Settings: Check now) and offers Install now / Later / Skip this version with download progress. Linux packages from a distro or Flatpak get a "manual" update mode (link only); AppImage, Windows and macOS self-update.
   - CI: `.github/workflows/release.yml` on tag `v*` with `tauri-apps/tauri-action`, matrix macos (aarch64 and x86_64), ubuntu-22.04 (deps `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`), windows; draft release. A separate CI workflow runs tests and `cargo clippy -D warnings`.
   - No Windows code signing or Apple notarization (unsigned builds; only update artifacts are signed). WebView2 is not bundled (preinstalled runtime).
-- **New compared to the reference: the Python sidecar.** Each CI runner builds it with PyInstaller (`podcastz-backend-<target-triple>[.exe]`) before `tauri-action`, and `bundle.externalBin` includes it. ffmpeg stays a system requirement at first (the app checks and explains how to install it); bundling it is a later option.
+- **New compared to the reference: the Python sidecar.** Each CI runner builds it with PyInstaller (`podcastz-cli-<target-triple>[.exe]`) before `tauri-action`, and `bundle.externalBin` includes it. ffmpeg stays a system requirement at first (the app checks and explains how to install it); bundling it is a later option.
 - The Python CLI (`podcastz`) stays installable on its own (`uv tool install`) for console-only use.
+- **State in the app today:** updater and process plugins are wired (Settings: automatic check on/off, Check now, skip version; banner with Install and restart, disabled while an audio task runs), release notes from `CHANGELOG.md` shown once per version and in Help. Still missing for the first release: the minisign public key in `tauri.conf.json` (`plugins.updater.pubkey` is empty, so an install would fail signature verification, never install unverified), `bundle.createUpdaterArtifacts`, the WiX template, the sidecar build, an app icon, and the release workflow, following the devstack release standard.
+- **CLI discovery (lesson):** the app never runs a bare `podcastz`, never a program inside its own folder tree (on Windows `cargo run` puts `target/debug/deps` first on PATH, and an old build of the app there once started itself without end), and never a GUI-subsystem executable; a child started by the app exits at once if it is the app.
 
 ## 10. Out of scope (for now)
 
@@ -141,6 +168,6 @@ Providers and prices in `core` data files (dated; verify before relying on them)
 
 1. Repo skeleton, `core` (port and generalization of the existing CLI), `podcastz check`, project template, `AGENTS.md`.
 2. Claude Code plugin: `prepare` skill and lock hooks; try it end to end on one small podcast from the console.
-3. Backend sidecar (FastAPI, SSE build progress).
+3. JSON-lines protocol of the CLI (the app's sidecar), workspace, keys in the OS credential store.
 4. Tauri app: projects, new podcast + launch/focus session, project view with live state, editor, player, build, publish, settings.
 5. Packaging: PyInstaller sidecar per platform, `.msi` with auto-update, Linux and macOS builds in GitHub Actions; README, license, publish the repo.

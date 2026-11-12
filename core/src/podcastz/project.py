@@ -38,8 +38,13 @@ def data_home():
 
 
 def resolve(ref):
-    """A project path, or a slug inside data_home()."""
-    path = ref if os.path.isdir(ref) else os.path.join(data_home(), ref)
+    """A project path, a slug in the current workspace, or a slug inside data_home()."""
+    path = ref
+    if not os.path.isdir(ref):
+        from .workspace import find  # local import: workspace imports this module
+        ws = find()
+        cand = os.path.join(ws.projects_dir, ref) if ws else None
+        path = cand if cand and os.path.isdir(cand) else os.path.join(data_home(), ref)
     if not os.path.exists(os.path.join(path, 'podcast.json')):
         raise PodcastzError(f'Not a podcastz project (missing podcast.json): {path}')
     return os.path.abspath(path)
