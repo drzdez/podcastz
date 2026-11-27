@@ -232,6 +232,20 @@ fn set_workspace(presence: State<'_, Presence>, workspace: Option<String>) -> Re
     Ok(())
 }
 
+/// Let the webview play one episode: an `.mp3` inside the current workspace becomes readable
+/// through the asset protocol (the scope starts empty; nothing else in the workspace is exposed).
+#[tauri::command]
+fn allow_audio(app: tauri::AppHandle, presence: State<'_, Presence>, path: String) -> Result<(), String> {
+    let ws = presence.0.lock().unwrap().clone().ok_or("no workspace open")?;
+    let file = PathBuf::from(&path).canonicalize().map_err(|e| format!("{path}: {e}"))?;
+    let root = ws.canonicalize().map_err(|e| e.to_string())?;
+    let is_mp3 = file.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3"));
+    if !is_mp3 || !file.starts_with(&root) {
+        return Err("only MP3 files inside the workspace can be played".into());
+    }
+    app.asset_protocol_scope().allow_file(&file).map_err(|e| e.to_string())
+}
+
 fn on_path(name: &str) -> Option<PathBuf> {
     let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
     let path = std::env::var_os("PATH").unwrap_or_default();
@@ -336,7 +350,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            cli, start_job, cancel_job, set_workspace, open_session, key_status, key_set, key_delete, diagnostics
+            cli, start_job, cancel_job, set_workspace, open_session, key_status, key_set, key_delete, diagnostics,
+            allow_audio
         ])
         .build(tauri::generate_context!())
         .expect("error while building podcastz")

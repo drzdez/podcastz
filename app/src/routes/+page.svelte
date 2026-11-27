@@ -10,12 +10,14 @@
     type WorkspaceStatus, type Source, type Issue, type Estimate, type KeyStatus, type JobLine, type KeyCheck,
   } from '$lib/api';
   import Help from '$lib/Help.svelte';
+  import Episodes from '$lib/Episodes.svelte';
   import { shouldCheck, shouldOffer } from '$lib/update';
   import { RELEASES, releasesSince, itemHtml, type Release } from '$lib/releaseNotes';
 
   const STAGES = ['interview', 'research', 'script', 'review', 'ready'];
 
   let tab = $state<'workspace' | 'project' | 'settings' | 'help'>('workspace');
+  let projectView = $state<'overview' | 'listen'>('overview');
 
   // updates and release notes (devstackz ADR 0002 and the release-notes requirement)
   let appVersion = $state('');
@@ -368,6 +370,13 @@
       <h2>{project.title ?? project.slug}</h2>
       <p><small>{project.state.stage}: {project.state.message ?? ''}</small>
         <button onclick={() => openPath(projectDir)}>Open folder</button></p>
+      <div class="subnav">
+        <button class:active={projectView === 'overview'} onclick={() => (projectView = 'overview')}>Sources, check and audio</button>
+        <button class:active={projectView === 'listen'} onclick={() => (projectView = 'listen')}>Script and player</button>
+      </div>
+    {#if projectView === 'listen'}
+      <Episodes workspace={status!.workspace} slug={project.slug} />
+    {:else}
 
       <h3>Sources</h3>
       <table>
@@ -425,6 +434,7 @@
       {:else}
         <p><small>{estimateError || 'No estimate yet.'}</small></p>
       {/if}
+    {/if}
     </section>
   {:else if tab === 'settings'}
     <section>
@@ -507,6 +517,9 @@
   .key small.good { color: #0a7a3d; }
   .key small.bad { color: #b42318; }
   .check { display: flex; gap: 8px; align-items: center; }
+  .subnav { display: flex; gap: 6px; margin: 8px 0 14px; border-bottom: 1px solid #d9dde5; }
+  .subnav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
+  .subnav button.active { border-bottom-color: #1e4fa8; font-weight: 600; }
   button.link { border: none; background: none; padding: 0 4px; color: #1e4fa8; text-decoration: underline; }
   .banner { display: flex; gap: 10px; align-items: center; background: #e8f0fe; border: 1px solid #b6cdf5; border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
   .banner > div { flex: 1; }

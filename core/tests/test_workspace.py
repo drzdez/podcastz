@@ -112,6 +112,38 @@ def test_key_set_reads_stdin_and_status_hides_value(monkeypatch, capsys, fake_va
     assert {k['provider']: k['source'] for k in status['keys']}['elevenlabs'] == 'store'
 
 
+def test_episodes_view_with_and_without_timings(ws, capsys):
+    p = create(ws.path('how-dns-works'), language_code='en')
+    with open(p.path('text', '01-dns.md'), 'w', encoding='utf-8') as f:
+        f.write('# Episode 01 – DNS\n\n## Names\nMODERATOR: Hello there.\n<!-- note -->\nGUEST: Hi.\n'
+                '## Records\nMODERATOR: A record maps a name.\n')
+    assert main(['--json', 'episodes', p.dir]) == 0
+    ep = json.loads(capsys.readouterr().out)['episodes'][0]
+    assert ep['title'] == 'Episode 01 – DNS' and ep['audio'] is None
+    assert [c['first_line'] for c in ep['chapters']] == [1, 3]
+    assert [l['speaker'] for l in ep['lines']] == ['MODERATOR', 'GUEST', 'MODERATOR']
+
+    os.makedirs(p.path('audio'), exist_ok=True)
+    open(p.path('audio', '01-dns.mp3'), 'wb').close()
+    manifest = {'duration': 6.0, 'lines': [{'speaker': 'MODERATOR', 'start': 0.0, 'end': 2.0},
+                                           {'speaker': 'GUEST', 'start': 2.0, 'end': 3.0},
+                                           {'speaker': 'MODERATOR', 'start': 3.0, 'end': 6.0}]}
+    with open(p.path('audio', '01-dns.json'), 'w', encoding='utf-8') as f:
+        json.dump(manifest, f)
+    main(['--json', 'episodes', p.dir, '-e', '01'])
+    ep = json.loads(capsys.readouterr().out)['episodes'][0]
+    assert ep['audio']['timed'] and ep['audio']['duration'] == 6.0
+    assert [c['start'] for c in ep['chapters']] == [0.0, 3.0]
+    assert ep['lines'][1]['start'] == 2.0
+
+    manifest['lines'].pop()  # the script changed after the build: no timings, audio still playable
+    with open(p.path('audio', '01-dns.json'), 'w', encoding='utf-8') as f:
+        json.dump(manifest, f)
+    main(['--json', 'episodes', p.dir])
+    ep = json.loads(capsys.readouterr().out)['episodes'][0]
+    assert ep['audio'] and not ep['audio']['timed'] and 'start' not in ep['lines'][0]
+
+
 def test_json_build_dry_run(ws, monkeypatch, capsys):
     p = create(ws.path('how-dns-works'), language_code='en')
     with open(p.path('text', '01-dns.md'), 'w', encoding='utf-8') as f:

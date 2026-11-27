@@ -34,7 +34,7 @@ from . import workspace as wsmod
 from .audio import duration, mix, mix_episode
 from .check import check_project
 from .pricing import LANGS, PRICING, chars_per_hour, cost, cost_per_hour, fmt_hours, quote, rate_label
-from .project import STAGES, Project, create, data_home, done
+from .project import STAGES, Project, create, data_home, done, load_json
 from .tts import generate, list_voices
 
 JSON = False
@@ -127,6 +127,47 @@ def cmd_check(a):
             print(i)
         print(f'{errors} errors, {len(issues) - errors} warnings')
     return 1 if errors else 0
+
+
+def episode_view(p, md):
+    """One episode for reading and listening: chapters, replicas, and the MP3 with replica and chapter
+    times when the timing manifest written by build/mix still matches the script."""
+    text_file = p.path('text', md)
+    lines = [{'index': i + 1, 'speaker': who, 'text': text} for i, (who, text) in enumerate(p.lines(md))]
+    chapters = [{'title': it['title'], 'first_line': it['next_line']}
+                for it in p.outline(md) if it['type'] == 'chapter']
+    view = {'episode': md[:-3], 'file': text_file, 'title': p.title(md), 'chapters': chapters,
+            'lines': lines, 'audio': None}
+    mp3 = p.path('audio', md[:-3] + '.mp3')
+    if not os.path.isfile(mp3):
+        return view
+    audio = {'file': mp3, 'duration': None, 'timed': False,
+             'changed_since': os.path.getmtime(text_file) > os.path.getmtime(mp3)}
+    man_file = mp3[:-4] + '.json'
+    man = load_json(man_file) if os.path.isfile(man_file) else None
+    if man:
+        audio['duration'] = man.get('duration')
+        timed = man.get('lines') or []
+        if len(timed) == len(lines) and all(t.get('speaker') == l['speaker'] for t, l in zip(timed, lines)):
+            audio['timed'] = True
+            for t, l in zip(timed, lines):
+                l['start'], l['end'] = t['start'], t['end']
+            for c in chapters:
+                c['start'] = lines[c['first_line'] - 1]['start'] if c['first_line'] <= len(lines) else man.get('duration')
+    view['audio'] = audio
+    return view
+
+
+def cmd_episodes(a):
+    p = Project(a.project)
+    eps = [episode_view(p, md) for md in p.episodes(a.episode)]
+    if JSON:
+        out({'project': p.slug, 'title': p.cfg.get('title'), 'episodes': eps})
+        return
+    for e in eps:
+        au = e['audio']
+        state = 'no audio' if not au else ('audio with timings' if au['timed'] else 'audio without matching timings')
+        print(f'{e["episode"]}: {e["title"]} - {len(e["lines"])} lines, {len(e["chapters"])} chapters, {state}')
 
 
 def cmd_source(a):
@@ -478,6 +519,7 @@ def main(argv=None):
     s.add_argument('stage', nargs='?', choices=STAGES)
     s.add_argument('-m', '--message')
     cmd('check', cmd_check)
+    cmd('episodes', cmd_episodes, episodes=True)
     s = cmd('source', cmd_source, project=False)
     s.add_argument('action', choices=['list', 'add', 'set'])
     s.add_argument('project')

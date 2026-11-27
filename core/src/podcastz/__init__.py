@@ -1,6 +1,6 @@
 """podcastz: dialogue scripts -> podcast audio. Library used by the CLI and the app backend."""
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 
 class PodcastzError(Exception):

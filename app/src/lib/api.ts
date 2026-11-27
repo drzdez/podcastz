@@ -1,5 +1,5 @@
 // Thin layer over the Rust commands: everything goes through the podcastz CLI (`--json`).
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type Stage = 'interview' | 'research' | 'script' | 'review' | 'ready';
@@ -24,6 +24,19 @@ export interface Estimate {
   est_hours: number; usd_total: number; usd_to_generate: number; usd_per_hour: number; audio_min: number;
   episodes: { episode: string; lines: number; chars: number; to_generate: number; est_min: number; audio_min: number }[];
 }
+export interface EpisodeLine { index: number; speaker: string; text: string; start?: number; end?: number }
+export interface EpisodeChapter { title: string; first_line: number; start?: number }
+export interface EpisodeView {
+  episode: string; file: string; title: string; chapters: EpisodeChapter[]; lines: EpisodeLine[];
+  audio: { file: string; duration: number | null; timed: boolean; changed_since: boolean } | null;
+}
+
+/** An episode's MP3 as a URL the webview can play (only MP3s inside the open workspace are allowed). */
+export async function audioUrl(path: string): Promise<string> {
+  await invoke('allow_audio', { path });
+  return convertFileSrc(path);
+}
+
 export interface KeyStatus { store: boolean; keys: { provider: string; source: string | null; env: string[] }[] }
 
 /** Run a CLI command; the last JSON line is the result. Errors come back as {event:'error'}. */
