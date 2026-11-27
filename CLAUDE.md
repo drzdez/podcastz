@@ -20,6 +20,13 @@ If a `CLAUDE.local.md` exists next to this file, read it too: it holds the maint
 - The segment cache key (hash of text, voice, model and settings in `Project.segment_key`) must stay stable: changing it makes every existing project pay to regenerate its audio.
 - Script format changes must keep `check.py`, `Project.lines/outline/script`, the template `AGENTS.md` and the `script` skill consistent.
 
+## Releasing
+
+1. `node scripts/bump-version.mjs X.Y.Z` (app, Rust, Tauri config and the Python CLI get one version; the plugin keeps its own).
+2. Add `## X.Y.Z – YYYY-MM-DD` with the release notes to `CHANGELOG.md` (the app shows it; it becomes the GitHub Release body).
+3. Commit, tag `vX.Y.Z`, push the tag. `.github/workflows/release.yml` checks the versions, creates a draft release, builds Windows (`.msi` and `-setup.exe`, per-machine, `app/src-tauri/windows/main.wxs`), Linux and macOS with the frozen CLI bundled (`core/packaging/`, `app/src-tauri/tauri.release.conf.json`), and publishes the release only when every build succeeded.
+- Installers are not code-signed; updater artifacts are signed with the minisign key from the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (public key in `tauri.conf.json`). The private key and its password never go into the repository.
+
 ## Data boundary (binding)
 
 - The repository holds only the framework. No podcast data of any kind: no sources, scripts, audio, cache, voice IDs from a private account, API keys, or names of real podcast projects in code, tests or docs. Tests use synthetic fixtures.

@@ -33,7 +33,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "drzdez",
+    "homepage": "https://github.com/drzdez/podcastz",
+    "license": "MIT",
+    "shortDescription": "Learn by listening to podcasts you prepare yourself",
+    "windows": {
+      "wix": {
+        "template": "windows/main.wxs"
+      },
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
   },
   "mainBinaryName": "podcastz-app",
   "plugins": {

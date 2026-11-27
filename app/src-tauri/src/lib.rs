@@ -87,8 +87,19 @@ fn acceptable_cli(candidate: &std::path::Path, me: Option<&std::path::Path>) -> 
     home.is_none_or(|h| !cand.starts_with(h))
 }
 
-/// The CLI: $PODCASTZ_CLI, a bundled sidecar `podcastz-cli` next to the executable, or `podcastz` on PATH
-/// (outside the app's own folder). Never a bare name: on Windows that would search the app's own folder first.
+/// The app's resource folder, set at startup; release builds bundle the frozen CLI there
+/// (`podcastz-cli/`, a PyInstaller one-folder build: it starts in ~0.2 s, a one-file build in ~0.9 s,
+/// and the app runs the CLI every few seconds).
+static RESOURCE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+fn bundled_cli() -> Option<PathBuf> {
+    let name = if cfg!(windows) { "podcastz-cli.exe" } else { "podcastz-cli" };
+    let p = RESOURCE_DIR.get()?.join("podcastz-cli").join(name);
+    (p.is_file() && !is_gui_exe(&p)).then_some(p)
+}
+
+/// The CLI: $PODCASTZ_CLI, the bundled sidecar (release builds), or `podcastz` on PATH (outside the
+/// app's own folder). Never a bare name: on Windows that would search the app's own folder first.
 fn cli_path() -> Result<PathBuf, String> {
     let me = std::env::current_exe().ok();
     if let Ok(p) = std::env::var("PODCASTZ_CLI") {
@@ -99,11 +110,8 @@ fn cli_path() -> Result<PathBuf, String> {
             Err(format!("PODCASTZ_CLI ({}) is not the podcastz CLI", p.display()))
         };
     }
-    if let Some(m) = &me {
-        let sidecar = m.with_file_name(if cfg!(windows) { "podcastz-cli.exe" } else { "podcastz-cli" });
-        if sidecar.is_file() && !is_gui_exe(&sidecar) && !same_file(&sidecar, m) {
-            return Ok(sidecar);
-        }
+    if let Some(sidecar) = bundled_cli() {
+        return Ok(sidecar);
     }
     let exe_name = if cfg!(windows) { "podcastz.exe" } else { "podcastz" };
     let path = std::env::var_os("PATH").unwrap_or_default();
@@ -321,6 +329,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(Jobs::default())
         .manage(Presence::default())
+        .setup(|app| {
+            if let Ok(dir) = app.path().resource_dir() {
+                let _ = RESOURCE_DIR.set(dir);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             cli, start_job, cancel_job, set_workspace, open_session, key_status, key_set, key_delete, diagnostics
         ])
@@ -383,7 +397,13 @@ mod tests {
     fn versions_agree() {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let pkg: serde_json::Value = serde_json::from_str(include_str!("../../package.json")).unwrap();
-        assert_eq!(conf["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(pkg["version"], env!("CARGO_PKG_VERSION"));
+        let v = env!("CARGO_PKG_VERSION");
+        assert_eq!(conf["version"], v);
+        assert_eq!(pkg["version"], v);
+        // the bundled CLI carries the same version (scripts/bump-version.mjs sets all of them)
+        let pyproject = include_str!("../../../core/pyproject.toml");
+        assert!(pyproject.lines().any(|l| l == format!("version = \"{v}\"")), "core/pyproject.toml");
+        let init = include_str!("../../../core/src/podcastz/__init__.py");
+        assert!(init.contains(&format!("__version__ = '{v}'")), "core/src/podcastz/__init__.py");
     }
 }

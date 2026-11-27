@@ -1,0 +1,135 @@
+name: Release
+
+# Push a tag like v0.1.0 (after `node scripts/bump-version.mjs 0.1.0` and a CHANGELOG.md section) to
+# build installers for all platforms. Follows the devstack release standard (reference: markdownz):
+# 1. prepare: checks that the tag matches the version in every file and creates a draft release whose
+#    body is the version's CHANGELOG.md section (the same notes the app shows);
+# 2. build: each platform freezes the Python CLI (PyInstaller one-folder build, bundled as a resource)
+#    and builds the Tauri app with signed updater artifacts into that draft;
+# 3. publish: only after every build succeeded, publishes the draft as the latest release and checks
+#    that the in-app update check finds it (releases/latest/download/latest.json).
+# Windows installers (.msi and NSIS -setup.exe, both per-machine) are not code-signed; only the
+# updater artifacts are signed with the minisign key (secrets TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tag matches the version everywhere
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          node -e "const v=process.argv[1]; const want=[['app/package.json',require('./app/package.json').version],['app/src-tauri/tauri.conf.json',require('./app/src-tauri/tauri.conf.json').version]]; for (const [f,x] of want) if (x!==v) { console.error(f+' has '+x+', tag is '+v); process.exit(1) }" "$v"
+          grep -q "^version = \"$v\"" app/src-tauri/Cargo.toml || { echo "Cargo.toml version differs from $v"; exit 1; }
+          grep -q "^version = \"$v\"" core/pyproject.toml || { echo "core/pyproject.toml version differs from $v"; exit 1; }
+      - name: Draft release with the CHANGELOG section as body
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/release-notes.mjs "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" --draft --title "podcastz ${GITHUB_REF_NAME}" --notes-file notes.md -R "$GITHUB_REPOSITORY"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name==\"$GITHUB_REF_NAME\") | .id" | head -1)
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+            pyarch: x64
+          - platform: ubuntu-22.04
+            args: ""
+            pyarch: x64
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+            pyarch: arm64
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+            pyarch: x64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev pkg-config
+
+      # The CLI sidecar: a PyInstaller one-folder build (starts in ~0.2 s; one-file needs ~0.9 s per
+      # call, and the app calls the CLI every few seconds). x64 Python on the arm64 macOS runner
+      # runs under Rosetta and yields an x86_64 build for the Intel app.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.pyarch }}
+      - name: Build the CLI sidecar
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller ./core
+          pyinstaller --noconfirm --onedir --name podcastz-cli --collect-data podcastz \
+            --collect-submodules keyring --copy-metadata keyring \
+            --distpath app/src-tauri/sidecar --workpath build/pyi --specpath build/pyi \
+            core/packaging/podcastz_cli.py
+          app/src-tauri/sidecar/podcastz-cli/podcastz-cli --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - run: npm ci
+        working-directory: app
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater artifacts and latest.json used by the in-app update check.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          args: --config src-tauri/tauri.release.conf.json ${{ matrix.args }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish the draft as the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest -R "$GITHUB_REPOSITORY"
+      - name: The update check finds this version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for i in 1 2 3 4 5 6; do
+            got=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/latest.json" | jq -r .version || true)
+            [ "${got#v}" = "$v" ] && { echo "latest.json: $got"; exit 0; }
+            sleep 10
+          done
+          echo "latest.json does not announce $v (got: $got)"; exit 1

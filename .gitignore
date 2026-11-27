@@ -23,3 +23,9 @@ legacy/
 
 # Local Claude context (private, never commit)
 CLAUDE.local.md
+
+# updater signing key (never committed; password only in Bitwarden)
+.signing/
+# release build outputs
+app/src-tauri/sidecar/
+build/

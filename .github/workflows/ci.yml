@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: astral-sh/setup-uv@v6
+      - name: Tests
+        working-directory: core
+        run: uv run --group dev pytest -q
+      - name: Release scripts
+        run: |
+          node scripts/release-notes.mjs "v$(node -p "require('./app/package.json').version")" > /dev/null
+
+  app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+      - run: npm ci
+        working-directory: app
+      - run: npm run check
+        working-directory: app
+      # tauri-build needs the frontend output to exist
+      - run: npm run build
+        working-directory: app
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: app/src-tauri
+      - run: cargo test
+        working-directory: app/src-tauri
