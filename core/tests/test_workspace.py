@@ -144,6 +144,48 @@ def test_episodes_view_with_and_without_timings(ws, capsys):
     assert ep['audio'] and not ep['audio']['timed'] and 'start' not in ep['lines'][0]
 
 
+def test_new_with_speakers_info_and_workspace_gitignore(ws, monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(ws.dir)
+    assert main(['--json', 'new', 'quiet-hour', '--title', 'Quiet hour', '--language', 'en',
+                 '--speakers', 'host, expert']) == 0
+    capsys.readouterr()
+    gi = open(os.path.join(ws.dir, '.gitignore'), encoding='utf-8').read()
+    assert '*/audio/**/*.mp3' in gi and '*/cache/' in gi
+    main(['--json', 'info', 'quiet-hour'])
+    info = json.loads(capsys.readouterr().out)
+    assert info['title'] == 'Quiet hour' and info['owner'] == 'own' and info['dir'].endswith('quiet-hour')
+    outside = create(str(tmp_path / 'elsewhere' / 'side-project'))
+    main(['--json', 'info', outside.dir])
+    assert json.loads(capsys.readouterr().out)['slug'] == 'side-project'
+    main(['--json', 'workspace', 'status'])
+    st = json.loads(capsys.readouterr().out)
+    assert st['projects_dir'] == ws.projects_dir and st['projects'][0]['dir'].endswith('quiet-hour')
+    assert json.load(open(os.path.join(ws.dir, 'quiet-hour', 'podcast.json'), encoding='utf-8'))['speakers'] == ['HOST', 'EXPERT']
+
+
+def test_handoff_and_open(tmp_path, monkeypatch, capsys):
+    assert main(['handoff']) == 0
+    text = capsys.readouterr().out
+    assert 'podcastz new' in text and 'podcastz open' in text and 'SPEAKER: text' in text
+    p = create(str(tmp_path / 'client-repo' / 'podcast' / 'dns-basics'))
+    started = {}
+
+    class FakePopen:
+        def __init__(self, cmd, env=None, **kw):
+            started['cmd'], started['env'] = cmd, env
+
+    monkeypatch.setattr('subprocess.Popen', FakePopen)
+    monkeypatch.setenv('PODCASTZ_APP', str(tmp_path / 'podcastz-app.exe'))
+    monkeypatch.setenv('PODCASTZ_SPAWNED_BY_APP', '1')
+    monkeypatch.chdir(p.dir)
+    assert main(['--json', 'open']) == 0
+    assert started['cmd'][-1] == p.dir and 'PODCASTZ_SPAWNED_BY_APP' not in started['env']
+    monkeypatch.delenv('PODCASTZ_APP')
+    monkeypatch.setattr('podcastz.cli.find_app', lambda: None)
+    capsys.readouterr()
+    assert main(['--json', 'open', p.dir]) == 2
+
+
 def test_json_build_dry_run(ws, monkeypatch, capsys):
     p = create(ws.path('how-dns-works'), language_code='en')
     with open(p.path('text', '01-dns.md'), 'w', encoding='utf-8') as f:

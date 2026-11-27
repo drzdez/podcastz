@@ -29,6 +29,23 @@ struct Jobs {
 #[derive(Default)]
 struct Presence(Mutex<Option<PathBuf>>);
 
+/// A podcast folder passed on the command line (`podcastz-app <folder>`, or `podcastz open <folder>`),
+/// taken once by the UI at startup; later launches forward their folder as an `open-project` event.
+#[derive(Default)]
+struct StartupProject(Mutex<Option<String>>);
+
+fn project_arg(args: &[String]) -> Option<String> {
+    args.iter().skip(1).find(|a| !a.starts_with('-')).map(|a| {
+        let p = PathBuf::from(a);
+        p.canonicalize().map(|c| c.display().to_string().trim_start_matches(r"\\?\").to_string()).unwrap_or_else(|_| a.clone())
+    })
+}
+
+#[tauri::command]
+fn startup_project(start: State<'_, StartupProject>) -> Option<String> {
+    start.0.lock().unwrap().take()
+}
+
 #[derive(Clone, Serialize)]
 struct JobEvent {
     id: u32,
@@ -232,18 +249,29 @@ fn set_workspace(presence: State<'_, Presence>, workspace: Option<String>) -> Re
     Ok(())
 }
 
-/// Let the webview play one episode: an `.mp3` inside the current workspace becomes readable
-/// through the asset protocol (the scope starts empty; nothing else in the workspace is exposed).
+/// Let the webview play one episode: an audio file inside a podcast project folder (one with
+/// `podcast.json`, in the workspace or elsewhere) becomes readable through the asset protocol.
+/// The scope starts empty; nothing else is exposed.
 #[tauri::command]
-fn allow_audio(app: tauri::AppHandle, presence: State<'_, Presence>, path: String) -> Result<(), String> {
-    let ws = presence.0.lock().unwrap().clone().ok_or("no workspace open")?;
-    let file = PathBuf::from(&path).canonicalize().map_err(|e| format!("{path}: {e}"))?;
-    let root = ws.canonicalize().map_err(|e| e.to_string())?;
-    let is_mp3 = file.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3"));
-    if !is_mp3 || !file.starts_with(&root) {
-        return Err("only MP3 files inside the workspace can be played".into());
-    }
+fn allow_audio(app: tauri::AppHandle, path: String, project: String) -> Result<(), String> {
+    let file = playable(&path, &project)?;
     app.asset_protocol_scope().allow_file(&file).map_err(|e| e.to_string())
+}
+
+const AUDIO_EXTENSIONS: [&str; 3] = ["mp3", "m4a", "wav"];
+
+fn playable(path: &str, project: &str) -> Result<PathBuf, String> {
+    let file = PathBuf::from(path).canonicalize().map_err(|e| format!("{path}: {e}"))?;
+    let root = PathBuf::from(project).canonicalize().map_err(|e| format!("{project}: {e}"))?;
+    let audio = file.extension().and_then(|e| e.to_str())
+        .is_some_and(|e| AUDIO_EXTENSIONS.iter().any(|a| a.eq_ignore_ascii_case(e)));
+    if !root.join("podcast.json").is_file() {
+        return Err(format!("{project} is not a podcast project"));
+    }
+    if !audio || !file.starts_with(&root) {
+        return Err("only audio files inside the podcast project can be played".into());
+    }
+    Ok(file)
 }
 
 fn on_path(name: &str) -> Option<PathBuf> {
@@ -330,10 +358,13 @@ pub fn run() {
     }
     tauri::Builder::default()
         // The first plugin: a second launch only focuses the running window.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+            }
+            if let Some(dir) = project_arg(&args) {
+                let _ = app.emit("open-project", dir);
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -343,6 +374,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(Jobs::default())
         .manage(Presence::default())
+        .manage(StartupProject(Mutex::new(project_arg(&std::env::args().collect::<Vec<_>>()))))
         .setup(|app| {
             if let Ok(dir) = app.path().resource_dir() {
                 let _ = RESOURCE_DIR.set(dir);
@@ -351,7 +383,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             cli, start_job, cancel_job, set_workspace, open_session, key_status, key_set, key_delete, diagnostics,
-            allow_audio
+            allow_audio, startup_project
         ])
         .build(tauri::generate_context!())
         .expect("error while building podcastz")
@@ -389,6 +421,23 @@ mod tests {
         assert!(acceptable_cli(&outside, Some(&me)), "an installed CLI elsewhere");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&outside_dir);
+    }
+
+    #[test]
+    fn only_audio_inside_a_project_is_playable() {
+        let base = std::env::temp_dir().join(format!("podcastz-play-test-{}", std::process::id()));
+        let proj = base.join("how-dns-works");
+        std::fs::create_dir_all(proj.join("audio")).unwrap();
+        std::fs::write(proj.join("podcast.json"), b"{}").unwrap();
+        std::fs::write(proj.join("audio").join("01.mp3"), b"x").unwrap();
+        std::fs::write(proj.join("BRIEF.md"), b"x").unwrap();
+        std::fs::write(base.join("other.mp3"), b"x").unwrap();
+        let p = proj.to_str().unwrap();
+        assert!(playable(proj.join("audio").join("01.mp3").to_str().unwrap(), p).is_ok());
+        assert!(playable(proj.join("BRIEF.md").to_str().unwrap(), p).is_err(), "not audio");
+        assert!(playable(base.join("other.mp3").to_str().unwrap(), p).is_err(), "outside the project");
+        assert!(playable(base.join("other.mp3").to_str().unwrap(), base.to_str().unwrap()).is_err(), "no podcast.json");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[cfg(windows)]

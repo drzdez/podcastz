@@ -223,4 +223,28 @@ def create(path, title=None, language_code=None, model=None, speakers=('MODERATO
     save_json(os.path.join(path, 'podcast.json'), cfg)
     save_json(os.path.join(path, 'state.json'),
               {'stage': 'interview', 'message': 'Project created; waiting for the interview', 'updated': now()})
+    write_gitignore(path)
     return Project(path)
+
+
+# Generated audio is never committed; its metadata (the timing and production manifests
+# audio/NN-slug.json) and everything the episodes were made from are.
+GITIGNORE = """# podcastz: generated audio and caches are never committed (metadata in audio/*.json is)
+audio/**/*.mp3
+audio/**/*.wav
+audio/**/*.m4a
+audio/**/*.ogg
+cache/
+delivery/
+.podcastz/
+"""
+
+
+def write_gitignore(path):
+    """Create the project's .gitignore, or add the podcastz rules to an existing one."""
+    gi = os.path.join(path, '.gitignore')
+    old = io.open(gi, encoding='utf-8').read() if os.path.exists(gi) else ''
+    if 'podcastz: generated audio' in old:
+        return
+    with io.open(gi, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(old + ('\n' if old and not old.endswith('\n') else '') + GITIGNORE)

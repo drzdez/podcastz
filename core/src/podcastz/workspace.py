@@ -39,6 +39,12 @@ def init(path, marketplace=DEFAULT_MARKETPLACE):
         save_json(marker, {'projects_dir': '.', 'created': now()})
     with open(os.path.join(path, RUNTIME, '.gitignore'), 'w', encoding='utf-8', newline='\n') as f:
         f.write('# runtime files of podcastz (session, app, requests)\n*\n')
+    # generated audio is never committed, also for projects created before podcastz wrote their own .gitignore
+    gi = os.path.join(path, '.gitignore')
+    old = open(gi, encoding='utf-8').read() if os.path.exists(gi) else ''
+    if 'podcastz: generated audio' not in old:
+        with open(gi, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(old + ('\n' if old and not old.endswith('\n') else '') + WORKSPACE_GITIGNORE)
     settings_path = os.path.join(path, '.claude', 'settings.json')
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
     settings = load_json(settings_path) if os.path.exists(settings_path) else {}
@@ -50,6 +56,16 @@ def init(path, marketplace=DEFAULT_MARKETPLACE):
     settings.setdefault('enabledPlugins', {})['podcastz@podcastz'] = True
     save_json(settings_path, settings)
     return Workspace(path)
+
+
+WORKSPACE_GITIGNORE = """# podcastz: generated audio and caches are never committed (metadata in */audio/*.json is)
+*/audio/**/*.mp3
+*/audio/**/*.wav
+*/audio/**/*.m4a
+*/audio/**/*.ogg
+*/cache/
+*/delivery/
+"""
 
 
 class Workspace:

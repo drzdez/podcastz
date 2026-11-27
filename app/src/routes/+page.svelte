@@ -3,11 +3,12 @@
   import { open as pickFolder } from '@tauri-apps/plugin-dialog';
   import { openPath } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
+  import { listen } from '@tauri-apps/api/event';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { relaunch } from '@tauri-apps/plugin-process';
   import {
-    cli, job, cancelJob, setWorkspace, openSession, keyStatus, keySet, keyDelete, getSetting, setSetting,
-    type WorkspaceStatus, type Source, type Issue, type Estimate, type KeyStatus, type JobLine, type KeyCheck,
+    cli, job, cancelJob, setWorkspace, startupProject, openSession, keyStatus, keySet, keyDelete, getSetting, setSetting,
+    type WorkspaceStatus, type ProjectSummary, type Source, type Issue, type Estimate, type KeyStatus, type JobLine, type KeyCheck,
   } from '$lib/api';
   import Help from '$lib/Help.svelte';
   import Episodes from '$lib/Episodes.svelte';
@@ -37,6 +38,14 @@
   let notice = $state('');
 
   let slug = $state<string | null>(null);
+  // podcast folders outside the workspace: podcastz works on them but does not manage their storage
+  let externals = $state<ProjectSummary[]>([]);
+  let newOpen = $state(false);
+  let newSlug = $state('');
+  let newTitle = $state('');
+  let newLang = $state('');
+  let newSpeakers = $state('MODERATOR, GUEST');
+  let languages = $state<{ code: string; name: string }[]>([]);
   let sources = $state<Source[]>([]);
   let issues = $state<Issue[]>([]);
   let estimate = $state<Estimate | null>(null);
@@ -51,8 +60,12 @@
   let jobLog = $state<string[]>([]);
   let progress = $state<{ episode: string; line: number; lines: number } | null>(null);
 
-  const project = $derived(status?.projects.find((p) => p.slug === slug) ?? null);
-  const projectDir = $derived(status && slug ? `${status.workspace}\\${slug}` : '');
+  // slug holds the selected project's folder (workspace projects and folders elsewhere alike)
+  const allProjects = $derived([...(status?.projects ?? []).map((p) => ({ ...p, external: false })), ...externals.map((p) => ({ ...p, external: true }))]);
+  const project = $derived(allProjects.find((p) => p.dir === slug) ?? null);
+  const projectDir = $derived(project?.dir ?? '');
+  /** Where CLI commands for the selected project run: the workspace, or the folder itself for projects elsewhere. */
+  const projCwd = $derived(project ? (project.external ? project.dir : status?.workspace ?? project.dir) : '');
   const sessionAlive = $derived(!!status?.session && status.session.state !== 'ended');
 
   let refreshing = false;
@@ -74,8 +87,8 @@
   }
 
   async function loadProject() {
-    if (!slug || !status) return;
-    const cwd = status.workspace;
+    if (!slug || !projCwd) return;
+    const cwd = projCwd;
     try { sources = (await cli<{ sources: Source[] }>(['source', 'list', slug], cwd)).sources; } catch { sources = []; }
     try { issues = (await cli<{ issues: Issue[] }>(['check', slug], cwd)).issues; } catch { issues = []; }
     try { estimate = await cli<Estimate>(['estimate', slug], cwd); estimateError = ''; }
@@ -107,6 +120,73 @@
     } catch (e) { error = String((e as Error).message ?? e); }
   }
 
+  const slugify = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+  async function openNew() {
+    newOpen = true;
+    if (!languages.length) {
+      try {
+        const r = await cli<{ languages: Record<string, { name: string }> }>(['languages']);
+        languages = Object.entries(r.languages).map(([code, l]) => ({ code, name: l.name }));
+      } catch { languages = []; }
+    }
+  }
+
+  async function createPodcast() {
+    if (!status) return;
+    const s = slugify(newSlug || newTitle);
+    if (!s) { notice = 'Give the podcast a name.'; return; }
+    try {
+      const args = ['new', s, '--speakers', newSpeakers];
+      if (newTitle.trim()) args.push('--title', newTitle.trim());
+      if (newLang) args.push('--language', newLang);
+      const r = await cli<{ dir: string }>(args, status.workspace);
+      newOpen = false; newSlug = ''; newTitle = '';
+      await refresh();
+      slug = r.dir; tab = 'project';
+      notice = 'Podcast created. Start the AI session and run /podcastz:prepare for the interview, or put scripts into its text folder.';
+    } catch (e) { notice = String((e as Error).message ?? e); }
+  }
+
+  async function loadExternals() {
+    const dirs = (await getSetting<string[]>('externalProjects')) ?? [];
+    const found: ProjectSummary[] = [];
+    for (const d of dirs) {
+      try { found.push(await cli<ProjectSummary>(['info', d], d)); } catch { /* folder gone: keep it listed in settings only */ }
+    }
+    externals = found;
+  }
+
+  /** Open a podcast folder: one of the workspace's projects, or a folder elsewhere (remembered in the list). */
+  async function openProjectDir(dir: string) {
+    try {
+      const info = await cli<ProjectSummary>(['info', dir], dir);
+      const same = (a: string, b: string) => a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase();
+      const inWorkspace = status?.projects.find((p) => same(p.dir, info.dir));
+      if (!inWorkspace) {
+        const dirs = new Set((await getSetting<string[]>('externalProjects')) ?? []);
+        dirs.add(info.dir);
+        await setSetting('externalProjects', [...dirs]);
+        await loadExternals();
+      }
+      slug = inWorkspace?.dir ?? info.dir; tab = 'project'; projectView = 'overview';
+      notice = '';
+    } catch (e) { notice = `Not a podcastz project folder (${dir}): ${(e as Error).message ?? e}`; }
+  }
+
+  async function addExternal() {
+    const dir = await pickFolder({ directory: true, title: 'A podcast folder (with podcast.json)' });
+    if (typeof dir === 'string') await openProjectDir(dir);
+  }
+
+  async function removeExternal(dir: string) {
+    const dirs = ((await getSetting<string[]>('externalProjects')) ?? []).filter((d) => d !== dir);
+    await setSetting('externalProjects', dirs);
+    if (slug === dir) { slug = null; tab = 'workspace'; }
+    await loadExternals();
+  }
+
   async function session(focusOnly: boolean) {
     if (!status) return;
     try {
@@ -116,24 +196,24 @@
   }
 
   async function setSource(s: Source, st: 'approved' | 'rejected' | 'proposed') {
-    await cli(['source', 'set', slug!, s.id, '--status', st], status!.workspace);
+    await cli(['source', 'set', slug!, s.id, '--status', st], projCwd);
     await loadProject();
     await refresh();
   }
 
   async function ask(text: string) {
     if (!text.trim() || !status) return;
-    await cli(['request', 'add', '--text', text.trim(), ...(slug ? ['--project', slug] : [])], status.workspace);
+    await cli(['request', 'add', '--text', text.trim(), ...(project && !project.external ? ['--project', project.slug] : [])], status.workspace);
     requestText = '';
     await refresh();
     notice = 'Request left for the AI session. It sees it with your next message there.';
   }
 
   async function runJob(args: string[], confirmText?: string) {
-    if (!status || jobId !== null) return;
+    if (!projCwd || jobId !== null) return;
     if (confirmText && !confirm(confirmText)) return;
     jobLog = []; progress = null;
-    const code = await job(args, status.workspace, (l: JobLine) => {
+    const code = await job(args, projCwd, (l: JobLine) => {
       if (l.event === 'progress') progress = l as any;
       else if (l.event === 'episode') jobLog = [...jobLog, `${l.episode}: ${l.file ? 'done' : 'segments missing'}`];
       else if (l.event === 'done') jobLog = [...jobLog, `Finished: ${l.chars_sent} characters, ~$${l.usd}`];
@@ -263,10 +343,15 @@
       client = (await getSetting('client')) ?? 'claude';
       const ws = await getSetting('workspace');
       if (ws) await useWorkspace(ws);
+      // `podcastz open <folder>` / `podcastz-app <folder>`: show that podcast
+      const start = await startupProject();
+      if (start) await openProjectDir(start);
     })();
+    const unlistenOpen = listen<string>('open-project', (e) => openProjectDir(e.payload));
     loadKeys();
+    loadExternals();
     const timer = setInterval(() => { if (jobId === null) refresh(); }, 3000);
-    return () => clearInterval(timer);
+    return () => { clearInterval(timer); unlistenOpen.then((f) => f()); };
   });
 
   $effect(() => { if (tab === 'project' && slug) loadProject(); });
@@ -278,7 +363,7 @@
     <nav>
       <button class:active={tab === 'workspace'} onclick={() => (tab = 'workspace')}>Workspace</button>
       <button class:active={tab === 'project'} disabled={!slug} onclick={() => (tab = 'project')}>
-        {slug ?? 'Project'}
+        {project?.slug ?? 'Project'}
       </button>
       <button class:active={tab === 'settings'} onclick={() => { tab = 'settings'; loadKeys(); }}>Settings</button>
       <button class:active={tab === 'help'} onclick={() => { tab = 'help'; loadKeys(); }}>Help</button>
@@ -333,7 +418,35 @@
         <button onclick={chooseWorkspace}>Choose…</button>
         {#if workspace && !status}<button onclick={initWorkspace}>Make it a workspace</button>{/if}
       </div>
+      {#if !workspace}<p><small>Choose the folder for your own podcasts (podcastz keeps one subfolder per podcast there), or open a podcast folder that belongs to another project below.</small></p>{/if}
       {#if status}
+        <div class="root">
+          <div>
+            <strong>Podcast projects folder:</strong> <code>{status.projects_dir}</code>
+            <br /><small>Every podcast is one subfolder here, with its sources, scripts, work and audio. If this folder is a git
+              repository, scripts and metadata can be committed; generated audio and caches are always in <code>.gitignore</code>.</small>
+          </div>
+          <button onclick={() => openPath(status!.projects_dir)}>Open folder</button>
+          <button class="primary" onclick={openNew}>Add podcast</button>
+        </div>
+        {#if newOpen}
+          <div class="newform">
+            <label>Name <input bind:value={newTitle} placeholder="How DNS works" oninput={() => (newSlug = slugify(newTitle))} /></label>
+            <label>Folder <input bind:value={newSlug} placeholder="how-dns-works" /></label>
+            <label>Audio language
+              <select bind:value={newLang}>
+                <option value="">decide in the interview</option>
+                {#each languages as l}<option value={l.code}>{l.name}</option>{/each}
+              </select>
+            </label>
+            <label>Speakers <input bind:value={newSpeakers} /></label>
+            <div class="row">
+              <button class="primary" onclick={createPodcast}>Create</button>
+              <button onclick={() => (newOpen = false)}>Cancel</button>
+              <small>Creates the folder structure (podcast.json, BRIEF.md, AGENTS.md, sources, text, audio). The AI session then interviews you and writes the scripts.</small>
+            </div>
+          </div>
+        {/if}
         <table>
           <thead><tr><th>Podcast</th><th>Stage</th><th>Episodes</th><th>Sources</th><th></th></tr></thead>
           <tbody>
@@ -348,7 +461,8 @@
                 </td>
                 <td>{p.episodes}</td>
                 <td>{p.sources.approved} approved<br /><small>{p.sources.proposed} to review</small></td>
-                <td><button onclick={() => { slug = p.slug; tab = 'project'; }}>Open</button></td>
+                <td><button onclick={() => { slug = p.dir; tab = 'project'; }}>Open</button>
+                  <button onclick={() => openPath(p.dir)} title={p.dir}>Folder</button></td>
               </tr>
             {:else}
               <tr><td colspan="5">No podcasts yet. Start the AI session and ask for a new podcast.</td></tr>
@@ -364,6 +478,29 @@
           <ul>{#each status.requests as r}<li>{r.text} <small>({r.project ?? 'workspace'}, pending)</small></li>{/each}</ul>
         {/if}
       {/if}
+
+      <h3>Podcast folders elsewhere</h3>
+      <p><small>podcastz can work on a podcast folder anywhere (for example one kept in another repository). It checks scripts and makes
+        audio there, but it does not manage that folder's storage, git or backups.</small></p>
+      {#if externals.length}
+        <table>
+          <tbody>
+            {#each externals as p (p.dir)}
+              <tr>
+                <td><strong>{p.title ?? p.slug}</strong><br /><small>{p.dir}</small></td>
+                <td>{p.state.stage ?? 'interview'}</td>
+                <td>{p.episodes} episodes</td>
+                <td class="actions">
+                  <button onclick={() => { slug = p.dir; tab = 'project'; }}>Open</button>
+                  <button onclick={() => openPath(p.dir)}>Folder</button>
+                  <button onclick={() => removeExternal(p.dir)} title="Remove from this list (the folder stays)">Remove</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+      <button onclick={addExternal}>Open a podcast folder…</button>
     </section>
   {:else if tab === 'project' && project}
     <section>
@@ -375,7 +512,7 @@
         <button class:active={projectView === 'listen'} onclick={() => (projectView = 'listen')}>Script and player</button>
       </div>
     {#if projectView === 'listen'}
-      <Episodes workspace={status!.workspace} slug={project.slug} />
+      <Episodes workspace={projCwd} slug={project.dir} />
     {:else}
 
       <h3>Sources</h3>
@@ -389,7 +526,7 @@
               <td class="actions">
                 {#if s.status !== 'approved'}<button onclick={() => setSource(s, 'approved')}>Approve</button>{/if}
                 {#if s.status !== 'rejected'}<button onclick={() => setSource(s, 'rejected')}>Reject</button>{/if}
-                <button onclick={() => ask(`Re-check source ${s.id} (${s.title}) in project ${slug} and summarise what it adds.`)}>Re-check</button>
+                <button onclick={() => ask(`Re-check source ${s.id} (${s.title}) in project ${project.slug} and summarise what it adds.`)}>Re-check</button>
               </td>
             </tr>
           {:else}
@@ -397,10 +534,14 @@
           {/each}
         </tbody>
       </table>
+      {#if project.external}
+        <p><small>This podcast belongs to another project; its AI session writes and keeps the scripts and sources.</small></p>
+      {:else}
       <div class="row">
         <input bind:value={requestText} placeholder="Ask about this podcast, e.g. Find a primary source on DNSSEC" />
         <button onclick={() => ask(requestText)}>Leave request</button>
       </div>
+      {/if}
 
       <h3>Scripts</h3>
       {#if issues.length}
@@ -517,6 +658,14 @@
   .key small.good { color: #0a7a3d; }
   .key small.bad { color: #b42318; }
   .check { display: flex; gap: 8px; align-items: center; }
+  .root { display: flex; gap: 10px; align-items: center; background: white; border: 1px solid #e3e6ec; border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+  .root > div { flex: 1; }
+  .root code { font-size: 13px; }
+  button.primary { background: #1e4fa8; border-color: #1e4fa8; color: white; }
+  .newform { background: white; border: 1px solid #b6cdf5; border-radius: 8px; padding: 12px 14px; margin: 0 0 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .newform label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4b5563; }
+  .newform .row { grid-column: 1 / -1; margin: 0; }
+  select { padding: 6px 8px; border: 1px solid #c7ccd6; border-radius: 6px; }
   .subnav { display: flex; gap: 6px; margin: 8px 0 14px; border-bottom: 1px solid #d9dde5; }
   .subnav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
   .subnav button.active { border-bottom-color: #1e4fa8; font-weight: 600; }

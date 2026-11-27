@@ -131,6 +131,19 @@ def test_manifest_timings(project):
     assert [l['start'] for l in m['lines']] == pytest.approx([0.0, 1.0, 3.0], abs=0.05)
     assert m['duration'] == pytest.approx(4.5, abs=0.05)
     assert [(c['title'], c['start']) for c in m['chapters']] == [('Asking', 0.0), ('Answering', pytest.approx(3.0, abs=0.05))]
+    prod = m['production']
+    assert prod['model'] == 'gpt-4o-mini-tts' and prod['provider'] == 'openai'
+    assert prod['voices'] == {'MODERATOR': 'marin', 'GUEST': 'cedar'}
+    assert prod['characters'] == sum(len(t) for _, t in project.lines('01-dns.md'))
+    assert prod['usd'] > 0 and len(prod['script_sha256']) == 64 and len(prod['segments_sha256']) == 64
+
+
+def test_new_project_ignores_generated_audio(tmp_path):
+    p = create(str(tmp_path / 'two-hosts'), speakers=('HOST', 'EXPERT'))
+    gi = open(p.path('.gitignore'), encoding='utf-8').read()
+    rules = [l for l in gi.splitlines() if l and not l.startswith('#')]
+    assert 'audio/**/*.mp3' in rules and 'cache/' in rules and not any('json' in r for r in rules)
+    assert json.load(open(p.path('podcast.json'), encoding='utf-8'))['speakers'] == ['HOST', 'EXPERT']
 
 
 def test_cli_check_exit_codes(project, capsys):

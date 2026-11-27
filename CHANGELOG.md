@@ -2,6 +2,16 @@
 
 Release notes of podcastz, newest first. The desktop app shows the entry of a new version once after an install or update, and all of them in Help; the same text is the body of the GitHub Release. Every version heading is `## <version> – <YYYY-MM-DD>`.
 
+## 0.1.3 – 2026-11-27
+
+- Add podcast: create a new podcast in your podcast projects folder from the app (name, language, speakers), without the AI session.
+- The Workspace page shows where your podcast projects live, with buttons to open that folder and each podcast's folder.
+- Podcast folders elsewhere: open a podcast that belongs to another project (for example an app's repository); podcastz works on it in place and keeps nothing about it. `podcastz open <folder>` opens a podcast in the app from a terminal or another AI session.
+- Help, *Podcasts in another project*: instructions for another project's AI session (create the folder, script format, price, audio) with a Copy button; the same text with `podcastz handoff`.
+- Each episode's `audio/NN-slug.json` now records how the audio was made: date, podcastz version, TTS provider, model, voices, characters, price, and fingerprints of the script and the speech segments.
+- New podcasts and workspaces get a `.gitignore` that keeps generated audio and caches out of git.
+- CLI: `podcastz new --speakers`, `podcastz info`, `podcastz open`, `podcastz handoff`.
+
 ## 0.1.2 – 2026-11-27
 
 First release with installers (0.1.1 was published without them by a release workflow error).

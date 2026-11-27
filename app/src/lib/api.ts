@@ -6,13 +6,13 @@ export type Stage = 'interview' | 'research' | 'script' | 'review' | 'ready';
 
 export interface ProjectState { stage?: Stage; message?: string; updated?: string }
 export interface ProjectSummary {
-  slug: string; title?: string; language?: string | null; state: ProjectState; episodes: number;
+  slug: string; dir: string; owner?: 'own' | 'client'; title?: string; language?: string | null; state: ProjectState; episodes: number;
   sources: { proposed: number; approved: number; rejected: number };
 }
 export interface SessionInfo { state: 'idle' | 'busy' | 'ended'; updated?: string; project?: string | null; session_id?: string }
 export interface Request { id: string; project?: string | null; text: string; status: string; created: string; result?: string }
 export interface WorkspaceStatus {
-  workspace: string; projects: ProjectSummary[]; session: SessionInfo | null; app: unknown; requests: Request[];
+  workspace: string; projects_dir: string; projects: ProjectSummary[]; session: SessionInfo | null; app: unknown; requests: Request[];
 }
 export interface Source {
   id: string; title: string; origin: string; file?: string; kind?: string;
@@ -32,8 +32,8 @@ export interface EpisodeView {
 }
 
 /** An episode's MP3 as a URL the webview can play (only MP3s inside the open workspace are allowed). */
-export async function audioUrl(path: string): Promise<string> {
-  await invoke('allow_audio', { path });
+export async function audioUrl(path: string, project: string): Promise<string> {
+  await invoke('allow_audio', { path, project });
   return convertFileSrc(path);
 }
 
@@ -122,3 +122,6 @@ export const DOCS = {
 export const setWorkspace = (workspace: string | null) => invoke('set_workspace', { workspace });
 export const openSession = (workspace: string, focusOnly: boolean, continuePrevious: boolean, client?: string) =>
   invoke<string>('open_session', { workspace, focusOnly, continuePrevious, client: client ?? null });
+
+/** A podcast folder given on the command line at startup (taken once). */
+export const startupProject = () => invoke<string | null>('startup_project');

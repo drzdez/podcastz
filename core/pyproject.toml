@@ -1,6 +1,6 @@
 [project]
 name = "podcastz"
-version = "0.1.2"
+version = "0.1.3"
 license = "MIT"
 description = "Turn two-voice dialogue scripts into podcast audio with TTS (OpenAI, ElevenLabs), with cost estimates and a content-hash cache."
 readme = "README.md"

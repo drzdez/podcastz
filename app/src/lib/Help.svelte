@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { diagnostics, DOCS, type Diagnostics, type KeyStatus, type WorkspaceStatus } from './api';
+  import { cli, diagnostics, DOCS, type Diagnostics, type KeyStatus, type WorkspaceStatus } from './api';
   import { RELEASES, itemHtml } from './releaseNotes';
 
   interface Props {
@@ -20,8 +20,18 @@
   let diag = $state<Diagnostics | null>(null);
   let copied = $state(false);
 
+  let handoff = $state('');
+  let handoffCopied = $state(false);
   async function loadDiag() { diag = await diagnostics(); }
-  onMount(loadDiag);
+  onMount(async () => {
+    loadDiag();
+    try { handoff = (await cli<{ text: string }>(['handoff'])).text; } catch { handoff = ''; }
+  });
+  async function copyHandoff() {
+    await navigator.clipboard.writeText(handoff);
+    handoffCopied = true;
+    setTimeout(() => (handoffCopied = false), 2000);
+  }
 
   type Check = { name: string; ok: boolean | null; detail: string; fix?: string };
   const checks = $derived<Check[]>([
@@ -109,6 +119,18 @@
     <button onclick={() => openUrl(DOCS.skills)}>The AI skills</button>
   </div>
 
+  <h2>Podcasts in another project</h2>
+  <p>podcastz also works for other projects: an app's repository can keep its own podcast folder, with the scripts written by
+    that project's AI session. podcastz keeps nothing about such a podcast; it checks the scripts, prices and generates the audio
+    there, and writes how the audio was made into <code>audio/NN-slug.json</code>. Give the session the text below (paste it into
+    the session, or save it as a file in its repository). It tells the session how to create the podcast folder, the script
+    format, and how to open the podcast here with <code>podcastz open &lt;folder&gt;</code>.</p>
+  <div class="row">
+    <button disabled={!handoff} onclick={copyHandoff}>{handoffCopied ? 'Copied' : 'Copy instructions for an AI session'}</button>
+    <small>Same text in a terminal: <code>podcastz handoff</code></small>
+  </div>
+  {#if handoff}<details><summary>Show the instructions</summary><pre class="handoff">{handoff}</pre></details>{/if}
+
   <h2>About</h2>
   <p>podcastz {diag?.app_version ?? ''} · MIT licence · <a href={DOCS.releases} onclick={(e) => { e.preventDefault(); openUrl(DOCS.releases); }}>releases</a></p>
   <div class="row">
@@ -135,5 +157,6 @@
   .fix { font-size: 13px; color: #8a6100; margin-top: 2px; }
   .row { display: flex; gap: 8px; margin: 12px 0; align-items: center; flex-wrap: wrap; }
   h4 { margin: 12px 0 4px; }
+  pre.handoff { white-space: pre-wrap; background: white; color: #1d2330; border: 1px solid #e3e6ec; border-radius: 6px; padding: 10px; max-height: 360px; overflow: auto; font-size: 12px; }
   li { margin: 3px 0; }
 </style>

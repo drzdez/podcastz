@@ -61,7 +61,7 @@
     time = 0; duration = 0; src = '';
     const a = episodes.find((e) => e.episode === name)?.audio;
     if (a) {
-      try { src = await audioUrl(a.file); } catch (e) { error = String(e); }
+      try { src = await audioUrl(a.file, slug); } catch (e) { error = String(e); }
     }
   }
 

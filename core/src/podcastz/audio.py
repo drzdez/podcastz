@@ -80,7 +80,37 @@ def manifest(p, md, wavs):
         if item['type'] == 'chapter':
             start = lines[item['next_line'] - 1]['start'] if item['next_line'] <= len(lines) else round(t, 2)
             chapters.append({'title': item['title'], 'start': start, 'first_line': item['next_line']})
-    return {'episode': md[:-3], 'title': p.title(md), 'duration': round(t, 2), 'chapters': chapters, 'lines': lines}
+    return {'episode': md[:-3], 'title': p.title(md), 'duration': round(t, 2), 'chapters': chapters, 'lines': lines,
+            'production': production(p, md, t)}
+
+
+def production(p, md, seconds):
+    """How the episode's audio was made: script and segment fingerprints, TTS provider, model, voices,
+    characters and the price at the rates in pricing.json (an estimate of what the whole episode costs)."""
+    from datetime import datetime, timezone
+
+    from . import __version__
+    from .pricing import PRICING, model_info, provider
+
+    plan = p.plan(md)
+    model = p.tts['model']
+    chars = sum(len(text) for _, text, _, _ in plan)
+    info = model_info(model)
+    if 'usd_per_audio_minute' in info:
+        usd = seconds / 60 * info['usd_per_audio_minute']
+    else:
+        usd = chars / 1000 * info['usd_per_1k_chars']
+    with io.open(p.path('text', md), 'rb') as f:
+        script_sha = hashlib.sha256(f.read().replace(b'\r\n', b'\n')).hexdigest()
+    segments_sha = hashlib.sha256('\n'.join(os.path.basename(seg) for *_, seg in plan).encode()).hexdigest()
+    voices = {}
+    for who, _, voice, _ in plan:
+        voices.setdefault(who, voice)
+    return {'created': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'podcastz': __version__,
+            'provider': provider(model), 'model': model, 'language': p.lang, 'voices': voices,
+            'tts_settings': {k: v for k, v in p.tts.items() if k not in ('model',)},
+            'characters': chars, 'usd': round(usd, 4), 'prices_as_of': PRICING.get('as_of'),
+            'script_sha256': script_sha, 'segments_sha256': segments_sha}
 
 
 def mix_episode(p, md, out_dir=None):

@@ -100,7 +100,8 @@ def cmd_new(a):
     else:
         ws = wsmod.find()
         path = os.path.join(ws.projects_dir if ws else data_home(), a.folder)
-    p = create(path, title=a.title, language_code=a.language, model=a.model)
+    speakers = [s.strip().upper() for s in a.speakers.split(',') if s.strip()] if a.speakers else None
+    p = create(path, title=a.title, language_code=a.language, model=a.model, **({'speakers': speakers} if speakers else {}))
     emit('project', p, 'created')
     say(f'Created {p.dir}\nNext: open your AI session in the workspace or project folder and run /podcastz:prepare '
         f'(or ask it to follow AGENTS.md).', {'project': p.slug, 'dir': p.dir})
@@ -398,6 +399,70 @@ def need_ws():
     return ws
 
 
+def project_summary(p):
+    """What the app lists for a project: title, language, stage, episodes, sources, folder."""
+    return {'slug': p.slug, 'dir': p.dir, 'title': p.cfg.get('title'), 'language': p.lang, 'state': p.state(),
+            'episodes': len(p.episodes()), 'owner': p.cfg.get('owner', {}).get('kind', 'own'),
+            'sources': {st: len(sources.items(p, st)) for st in sources.STATUSES}}
+
+
+def cmd_info(a):
+    """Summary of one project by path or slug (also for project folders outside any workspace)."""
+    s = project_summary(Project(a.project))
+    say(f'{s["slug"]}: {s["title"]} ({s["language"] or "language not set"}), stage {s["state"].get("stage")}, '
+        f'{s["episodes"]} episodes - {s["dir"]}', s)
+
+
+def handoff_text():
+    from importlib import resources
+    return resources.files('podcastz.templates').joinpath('handoff.md').read_text(encoding='utf-8')
+
+
+def cmd_handoff(a):
+    """Instructions for another AI session that wants podcasts made in its own repository."""
+    text = handoff_text()
+    if JSON:
+        out({'text': text})
+    else:
+        print(text)
+
+
+def find_app():
+    """The installed desktop app, or None."""
+    if os.environ.get('PODCASTZ_APP'):
+        return os.environ['PODCASTZ_APP']
+    if sys.platform == 'win32':
+        for base in (os.environ.get('ProgramFiles'), os.environ.get('LOCALAPPDATA') and
+                     os.path.join(os.environ['LOCALAPPDATA'], 'Programs')):
+            if base:
+                exe = os.path.join(base, 'podcastz', 'podcastz-app.exe')
+                if os.path.isfile(exe):
+                    return exe
+        return None
+    if sys.platform == 'darwin':
+        return '/Applications/podcastz.app' if os.path.isdir('/Applications/podcastz.app') else None
+    return shutil.which('podcastz-app')
+
+
+def cmd_open(a):
+    """Open a podcast folder in the desktop app (starts it, or brings the running app to that podcast)."""
+    import subprocess
+    p = Project(a.project or os.getcwd())
+    app = find_app()
+    if not app:
+        raise PodcastzError('The podcastz app is not installed (https://github.com/drzdez/podcastz/releases); '
+                            'set PODCASTZ_APP to its executable if it lives elsewhere')
+    env = {k: v for k, v in os.environ.items() if k != 'PODCASTZ_SPAWNED_BY_APP'}  # the app refuses that marker
+    if sys.platform == 'darwin':
+        cmd = ['open', '-a', app, '--args', p.dir]
+    else:
+        cmd = [app, p.dir]
+    kwargs = {'creationflags': 0x00000008 | 0x00000200} if sys.platform == 'win32' else {'start_new_session': True}
+    subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     **kwargs)
+    say(f'Opened {p.dir} in the podcastz app', {'opened': p.dir, 'app': app})
+
+
 def cmd_workspace(a):
     if a.action == 'init':
         ws = wsmod.init(a.dir or os.getcwd(), a.marketplace)
@@ -407,13 +472,8 @@ def cmd_workspace(a):
             {'workspace': ws.dir})
         return
     ws = need_ws()
-    projects = []
-    for slug in ws.projects():
-        p = Project(os.path.join(ws.projects_dir, slug))
-        projects.append({'slug': slug, 'title': p.cfg.get('title'), 'language': p.lang, 'state': p.state(),
-                         'episodes': len(p.episodes()),
-                         'sources': {st: len(sources.items(p, st)) for st in sources.STATUSES}})
-    st = {'workspace': ws.dir, 'projects': projects, 'session': ws.session(), 'app': ws.app(),
+    projects = [project_summary(Project(os.path.join(ws.projects_dir, slug))) for slug in ws.projects()]
+    st = {'workspace': ws.dir, 'projects_dir': ws.projects_dir, 'projects': projects, 'session': ws.session(), 'app': ws.app(),
           'requests': ws.requests()}
     if JSON:
         out(st)
@@ -515,6 +575,11 @@ def main(argv=None):
     s.add_argument('--title')
     s.add_argument('--language', help='audio language (may be left for the AI interview)')
     s.add_argument('--model', help=f'TTS model (default {PRICING["default_model"]})')
+    s.add_argument('--speakers', help='comma-separated speaker names (default MODERATOR,GUEST)')
+    cmd('info', cmd_info)
+    cmd('handoff', cmd_handoff, project=False)
+    s = cmd('open', cmd_open, project=False)
+    s.add_argument('project', nargs='?', help='podcast folder (default: the current folder)')
     s = cmd('state', cmd_state)
     s.add_argument('stage', nargs='?', choices=STAGES)
     s.add_argument('-m', '--message')

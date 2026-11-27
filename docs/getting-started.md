@@ -88,3 +88,7 @@ In the workspace, start Claude Code (`claude`, or *Start* in the app) and run:
 The session interviews you, collects and registers sources, writes and reviews the scripts, and tells you when they are ready. Then make the audio in the app (*Generate audio*) or in the session (`/podcastz:audio`). Either way you see the price first and confirm it.
 
 [How the data flows](how-it-works.md) explains what happens in the folder at each step.
+
+## 8. Podcasts that belong to another project
+
+A podcast can also live in another project's repository (for example an app that wants learning audio). That project's AI session creates the folder (`podcastz new podcast/<slug>`), writes and keeps the scripts, and opens the podcast in the app with `podcastz open podcast/<slug>` to make the audio. podcastz keeps nothing about such a podcast. Give the session the instructions from `podcastz handoff` (or Help → *Podcasts in another project* in the app). See [the spec](spec-projects-and-orders.md).
